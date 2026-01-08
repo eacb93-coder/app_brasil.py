@@ -75,4 +75,4 @@ O sistema foi construído com foco em robustez para evitar falhas em produção:
 
 Desenvolvedor com background em Administração e Auditoria, focado em criar ferramentas que transformam processos manuais em automação estratégica.
 
-[Seu LinkedIn Aqui]
+linkedin.com/in/eloirborges/

@@ -72,7 +72,6 @@ def calcular_orcamento(d_inicio, h_inicio, d_fim, h_fim, preco_dia, taxa_local):
     delta = dt_devolucao - dt_retirada
     dias_cobrados = max(1, delta.days)
     
-    # Lógica de Horas Extras
     segundos_extras = delta.seconds
     horas_extras = segundos_extras / 3600
     
@@ -89,7 +88,6 @@ def calcular_orcamento(d_inicio, h_inicio, d_fim, h_fim, preco_dia, taxa_local):
     
     return {
         "dias": dias_cobrados,
-        "preco_base": preco_dia,
         "total_diarias": total_diarias,
         "total_geral": total_geral,
         "aviso": aviso_extra
@@ -127,7 +125,6 @@ if not df.empty:
             e_isca = True
             st.error(f"🎣 ISCA DETECTADA")
         
-        # HERO CARD
         with st.container(border=True):
             st.markdown(f"## {carro['icon']} {carro['nome']}")
             k1, k2, k3 = st.columns(3)
@@ -160,56 +157,50 @@ if not df.empty:
             cliente = nome_cliente if nome_cliente else "Cliente"
             datas_str = f"{d_ini.strftime('%d/%m')} a {d_fim.strftime('%d/%m')}"
 
-            # --- 💰 PAINEL FINANCEIRO (BEYOND STYLE) ---
+            # PAINEL FINANCEIRO VISUAL
             st.markdown("### 💰 Resultado Financeiro")
             with st.container(border=True):
                 col_res1, col_res2, col_res3, col_res4 = st.columns(4)
-                
-                # Coluna 1: Cálculo de Dias
                 col_res1.metric("Aluguel (Dias)", f"{math['dias']}x Diárias")
-                
-                # Coluna 2: Taxa Base do Carro
                 col_res2.metric("Taxa Base Carro", f"R$ {preco_aplicado:.2f}")
-                
-                # Coluna 3: Taxas Extras
                 col_res3.metric(f"Taxas ({local[0:8]}..)", f"R$ {taxa:.2f}")
-                
-                # Coluna 4: Total Final
                 col_res4.metric("TOTAL FINAL", f"R$ {math['total_geral']:.2f}")
-                
-                # Aviso de Hora Extra (se houver)
-                if math['aviso']:
-                    st.warning(math['aviso'])
-            # -------------------------------------------
+                if math['aviso']: st.warning(math['aviso'])
 
-            # BENEFÍCIOS FIXOS
+            # BENEFÍCIOS PADRÃO
             beneficios = """✅ INCLUSO NA DIÁRIA:
    ✔️ Quilometragem Livre
    ✔️ Seguro Proteção Parcial (CDW)
    ✔️ Taxas de Serviço e Lavagem"""
 
+            # LÓGICA DE EMAILS (AGORA COM PREÇO NOS DOIS CASOS)
             if e_isca:
-                # MODO UPSELL
                 script = get_script_venda(d_ini, cliente)
                 st.toast(f"Estratégia: {script['periodo']}")
+                
+                # --- CORREÇÃO: ADICIONADO BLOCO FINANCEIRO NA ISCA ---
                 email = f"""Assunto: ⚠️ Disponibilidade: {carro['nome']} ({datas_str}) - {cliente}
 
 {script['texto']}
 
 ------------------------------------------------
-🚫 STATUS: O {carro['nome']} está indisponível.
+🚫 STATUS: O modelo solicitado está indisponível/esgotado nestas datas.
 
-✅ SUGESTÃO DE UPGRADE:
+✅ SUGESTÃO DE UPGRADE (Disponível Agora):
 🚗 Hyundai HB20 1.0 (Grupo B)
    • 5 Passageiros 👤 | 2 Malas 🧳
    • Mais conforto e motor para estrada
 
+💰 PROPOSTA FINANCEIRA (Para o Upgrade/Similar):
+Diárias: {math['dias']}x R$ {preco_aplicado:.2f}
+Taxas: R$ {taxa:.2f}
+TOTAL FINAL: R$ {math['total_geral']:.2f}
+
 {beneficios}
 
-Aguardo seu OK, {cliente}!"""
+Aguardo seu OK para bloquear o carro, {cliente}!"""
 
             else:
-                # MODO NORMAL
                 email = f"""Assunto: ✅ Reserva Confirmada: {carro['nome']} ({datas_str}) - {cliente}
 
 Olá {cliente}, orçamento oficial gerado:

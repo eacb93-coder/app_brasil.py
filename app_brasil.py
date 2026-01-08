@@ -9,14 +9,15 @@ st.set_page_config(page_title="Gestor de Locadora BR", page_icon="🇧🇷", lay
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR2Fjc9qA470SDT12L-_nNlryhKLXHZWXSYPzg-ycg-DGkt_O7suDDtUF3rQEE-pg/pub?gid=858361345&single=true&output=csv"
 
-LOCAIS = {
+# Configuração de Taxas
+TAXAS = {
     "Loja Centro": 0.0,
-    "Aeroporto (Taxa Entrega)": 80.00,
+    "Aeroporto": 80.00,
     "Hotel / Delivery": 50.00
 }
 
-# Preço do Condutor Extra (Configuração)
-PRECO_CONDUTOR_EXTRA = 15.00  # R$ 15,00 por dia
+PRECO_CONDUTOR_EXTRA = 15.00
+TAXA_RETORNO = 150.00  # Cobrada se devolver em local diferente
 
 # ==============================================================================
 # 2. MOTOR DE DADOS
@@ -67,9 +68,9 @@ def get_car_details(row):
     }
 
 # ==============================================================================
-# 3. CÁLCULO FINANCEIRO (ATUALIZADO COM EXTRAS) 💰
+# 3. CÁLCULO FINANCEIRO (COM LOGÍSTICA) 💰
 # ==============================================================================
-def calcular_orcamento(d_inicio, h_inicio, d_fim, h_fim, preco_dia, taxa_local, tem_condutor):
+def calcular_orcamento(d_inicio, h_inicio, d_fim, h_fim, preco_dia, taxa_retirada, taxa_retorno, tem_condutor):
     dt_retirada = datetime.combine(d_inicio, h_inicio)
     dt_devolucao = datetime.combine(d_fim, h_fim)
     delta = dt_devolucao - dt_retirada
@@ -87,13 +88,10 @@ def calcular_orcamento(d_inicio, h_inicio, d_fim, h_fim, preco_dia, taxa_local, 
     
     # Cálculos
     total_diarias = dias_cobrados * preco_dia
+    total_condutor = dias_cobrados * PRECO_CONDUTOR_EXTRA if tem_condutor else 0.0
     
-    # Lógica Condutor Extra
-    total_condutor = 0.0
-    if tem_condutor:
-        total_condutor = dias_cobrados * PRECO_CONDUTOR_EXTRA
-
-    total_geral = total_diarias + taxa_local + total_condutor
+    # Soma Tudo: Diárias + Taxa Local + Taxa Retorno (Logística) + Condutor
+    total_geral = total_diarias + taxa_retirada + taxa_retorno + total_condutor
     
     return {
         "dias": dias_cobrados,
@@ -119,7 +117,7 @@ def get_script_venda(data_inicio, nome_cliente):
 # ==============================================================================
 # 5. INTERFACE DO SISTEMA
 # ==============================================================================
-st.title("🚗 Gestor de Locadora BR (Pro)")
+st.title("🚗 Gestor de Locadora BR (Pro v4.1)")
 
 if not df.empty:
     col_menu, col_detalhes = st.columns([1, 1.5])
@@ -130,7 +128,6 @@ if not df.empty:
         linha = df[df['Carro'] == carro_sel].iloc[0]
         carro = get_car_details(linha)
         
-        # FEATURE RESTAURADA: VISUALIZAÇÃO RÁPIDA DE PREÇO
         st.info(f"💰 Taxa Base deste Carro: R$ {carro['p_baixa']:.2f}")
 
         e_isca = False
@@ -138,19 +135,17 @@ if not df.empty:
             e_isca = True
             st.error(f"🎣 ISCA DETECTADA")
         
-        # HERO CARD
         with st.container(border=True):
             st.markdown(f"## {carro['icon']} {carro['nome']}")
             k1, k2, k3 = st.columns(3)
             k1.metric("Lugares", f"{carro['lugares']} 👤")
             k2.metric("Malas", f"{carro['malas']} 🧳")
             k3.metric("Câmbio", f"{carro['cambio'][0:4]}. ⚙️")
-            
-            if "ESGOTADO" in carro['status']: st.warning("Indisponível nas datas")
+            if "ESGOTADO" in carro['status']: st.warning("Indisponível")
             else: st.success("Disponível")
 
     with col_detalhes:
-        st.subheader("2. Configuração & Cliente")
+        st.subheader("2. Dados da Reserva")
         nome_cliente = st.text_input("Nome do Cliente", placeholder="Ex: Sr. Carlos")
         
         c1, c2, c3, c4 = st.columns(4)
@@ -159,56 +154,76 @@ if not df.empty:
         with c3: d_fim = st.date_input("Devolução", datetime.today() + timedelta(days=3))
         with c4: h_fim = st.time_input("Hora Dev.", time(10, 0))
 
-        c_loc, c_extra = st.columns(2)
-        with c_loc:
-            local = st.selectbox("Local Retirada/Devolução", list(LOCAIS.keys()))
-        with c_extra:
-            st.write("") # Espaço
-            st.write("") 
-            # FEATURE RESTAURADA: CONDUTOR ADICIONAL
-            tem_condutor = st.checkbox(f"Condutor Adicional (+R$ {PRECO_CONDUTOR_EXTRA}/dia)")
+        # --- LOGÍSTICA CORRIGIDA (IGUAL BEYOND) ---
+        c_loc1, c_loc2 = st.columns(2)
+        with c_loc1:
+            local_ret = st.selectbox("📍 Local Retirada", list(TAXAS.keys()))
+        with c_loc2:
+            local_dev = st.selectbox("🏁 Local Devolução", list(TAXAS.keys()), index=0)
+        
+        st.write("")
+        tem_condutor = st.checkbox(f"Condutor Adicional (+R$ {PRECO_CONDUTOR_EXTRA}/dia)")
         
         if st.button("Gerar Orçamento Oficial 📄", type="primary"):
-            taxa = LOCAIS[local]
+            # Lógica de Taxas
+            valor_taxa_ret = TAXAS[local_ret]
+            valor_taxa_dev = 0.0
+            
+            # Se devolver em local diferente, cobra taxa de retorno
+            msg_retorno = ""
+            if local_ret != local_dev:
+                valor_taxa_dev = TAXA_RETORNO
+                msg_retorno = f"(Inclui Taxa de Retorno: R$ {TAXA_RETORNO})"
+
             is_alta = d_ini.month in [1, 2, 7, 12]
             preco_aplicado = carro['p_alta'] if is_alta else carro['p_baixa']
             
-            # CÁLCULO COM CONDUTOR
-            math = calcular_orcamento(d_ini, h_ini, d_fim, h_fim, preco_aplicado, taxa, tem_condutor)
+            math = calcular_orcamento(d_ini, h_ini, d_fim, h_fim, preco_aplicado, valor_taxa_ret, valor_taxa_dev, tem_condutor)
             
             cliente = nome_cliente if nome_cliente else "Cliente"
             datas_str = f"{d_ini.strftime('%d/%m')} a {d_fim.strftime('%d/%m')}"
 
-            # PAINEL FINANCEIRO
+            # --- PAINEL FINANCEIRO VISUAL ---
             st.markdown("### 💰 Resultado Financeiro")
             with st.container(border=True):
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("Aluguel", f"{math['dias']}x R$ {preco_aplicado}")
                 
-                # Se tiver condutor, mostra separado
-                if tem_condutor:
-                    c2.metric("Condutor Extra", f"R$ {math['total_condutor']:.2f}")
-                else:
-                    c2.metric("Taxas Local", f"R$ {taxa:.2f}")
-                    
-                c3.metric("Subtotal Taxas", f"R$ {taxa + math['total_condutor']:.2f}")
+                # Exibe taxas somadas (Retirada + Retorno + Condutor)
+                taxas_totais = valor_taxa_ret + valor_taxa_dev + math['total_condutor']
+                c2.metric("Taxas & Serviços", f"R$ {taxas_totais:.2f}")
+                
+                c3.metric("Status", "Confirmado" if not e_isca else "Upgrade")
                 c4.metric("TOTAL FINAL", f"R$ {math['total_geral']:.2f}")
                 
                 if math['aviso']: st.warning(math['aviso'])
+                if msg_retorno: st.info(f"Logística: Retirada em {local_ret} / Devolução em {local_dev}. {msg_retorno}")
 
-            # BENEFÍCIOS
+            # --- TEXTOS FIXOS ---
             beneficios = """✅ INCLUSO NA DIÁRIA:
    ✔️ Quilometragem Livre
    ✔️ Seguro Proteção Parcial (CDW)
    ✔️ Taxas de Serviço e Lavagem"""
+            
+            detalhes_logistica = f"Retirada: {local_ret}\nDevolução: {local_dev}"
+            txt_condutor = f"\n   ✔️ Condutor Adicional: R$ {math['total_condutor']:.2f}" if tem_condutor else ""
+            txt_retorno = f"\n   ✔️ Taxa de Retorno (One-Way): R$ {valor_taxa_dev:.2f}" if valor_taxa_dev > 0 else ""
 
-            # LINHA DO CONDUTOR NO EMAIL
-            txt_condutor = f"\n   ✔️ Condutor Adicional (Incluso: R$ {math['total_condutor']:.2f})" if tem_condutor else ""
+            # --- BLOCO FINANCEIRO STRING (PARA GARANTIR QUE APARECE NO EMAIL) ---
+            bloco_financeiro_txt = f"""💰 RESUMO DE VALORES:
+Diárias: {math['dias']}x R$ {preco_aplicado:.2f} = R$ {math['total_diarias']:.2f}
+Taxas Local: R$ {valor_taxa_ret:.2f}{txt_retorno}{txt_condutor}
+{math['aviso']}
+
+---------------------------------------
+✅ TOTAL FINAL: R$ {math['total_geral']:.2f}
+---------------------------------------"""
 
             if e_isca:
                 script = get_script_venda(d_ini, cliente)
                 st.toast(f"Estratégia: {script['periodo']}")
-                email = f"""Assunto: ⚠️ Disponibilidade: {carro['nome']} ({datas_str}) - {cliente}
+                
+                email = f"""Assunto: ⚠️ Disponibilidade: {carro['nome']} ({datas_str})
 
 {script['texto']}
 
@@ -220,17 +235,14 @@ if not df.empty:
    • 5 Passageiros 👤 | 2 Malas 🧳
    • Mais conforto e motor para estrada
 
-💰 PROPOSTA FINANCEIRA (Para o Upgrade):
-Diárias: {math['dias']}x R$ {preco_aplicado:.2f}
-Taxas: R$ {taxa:.2f}{txt_condutor}
-TOTAL FINAL: R$ {math['total_geral']:.2f}
+{bloco_financeiro_txt}
 
 {beneficios}
 
 Aguardo seu OK para bloquear o carro, {cliente}!"""
 
             else:
-                email = f"""Assunto: ✅ Reserva Confirmada: {carro['nome']} ({datas_str}) - {cliente}
+                email = f"""Assunto: ✅ Reserva Confirmada: {carro['nome']} ({datas_str})
 
 Olá {cliente}, orçamento oficial gerado:
 
@@ -241,22 +253,15 @@ Capacidade: {carro['lugares']} Pessoas 👤 | {carro['malas']} Malas 🧳
 📅 **AGENDA**
 Retirada:  {d_ini.strftime('%d/%m')} às {h_ini.strftime('%H:%M')}
 Devolução: {d_fim.strftime('%d/%m')} às {h_fim.strftime('%H:%M')}
-Local: {local}
+{detalhes_logistica}
 
-💰 **FINANCEIRO**
-Diárias: {math['dias']}x R$ {preco_aplicado:.2f} = R$ {math['total_diarias']:.2f}
-Taxas ({local}): R$ {taxa:.2f}{txt_condutor}
-{math['aviso']}
-
----------------------------------------
-✅ TOTAL FINAL: R$ {math['total_geral']:.2f}
----------------------------------------
+{bloco_financeiro_txt}
 
 {beneficios}
 
 Responda "DE ACORDO" para confirmar.
 Att, Equipe de Reservas."""
 
-            st.text_area("Copiar E-mail:", email, height=500)
+            st.text_area("Copiar E-mail:", email, height=550)
 
 else: st.info("Conectando...")
